@@ -1,0 +1,11 @@
+/cocoapi
+/datasets
+/logs
+/checkpoints
+/outputs
+/results
+.ipynb_checkpoints/
+*.pyc
+*.mp4
+*.avi
+*.swp
