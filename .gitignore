@@ -1,11 +1,8 @@
-/cocoapi
-/datasets
-/logs
-/checkpoints
-/outputs
-/results
+logs/
+ckpts/
 .ipynb_checkpoints/
 *.pyc
 *.mp4
 *.avi
 *.swp
+*.h5

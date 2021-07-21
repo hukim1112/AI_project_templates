@@ -1,12 +1,6 @@
 import subprocess
 import tensorflow as tf
-import os
 
-def select_gpus(gpu_ids):
-    assert type(gpu_ids) == str
-    for i in gpu_ids.split(","):
-        print("I want to use this gpu id only : {}".format(i))
-    os.environment["CUDA_VISIBLE_DEVICES"] = gpu_ids
 
 def get_gpus_memory():
     """Get the max gpu memory.
@@ -27,7 +21,7 @@ def get_gpus_memory():
 
 def setup_gpus(allow_growth=True, memory_fraction=.9):
     """Setup GPUs.
-    
+
     Parameters:
     allow_growth (Boolean)
     memory_fraction (Float): Set maximum memory usage, with 1 using
