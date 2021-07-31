@@ -1,6 +1,7 @@
 import tensorflow as tf
 import tensorflow_addons as tfa
 from .file import make_directory
+from .callback import RecordLearningRate
 from tensorflow.keras.optimizers.schedules import PiecewiseConstantDecay, PolynomialDecay, CosineDecayRestarts
 import math
 from tensorboard.plugins.hparams import api as hp
@@ -42,61 +43,8 @@ def make_scheduler(name, init_lr, steps_per_epoch):
     print(name, lr_fn)
     return lr_fn
 
-def custom_model(model):
-    # your loss function
-    loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
-    loss_tracker = tf.keras.metrics.Mean(name="loss")
-    acc = tf.keras.metrics.SparseCategoricalAccuracy(name="acc")
-
-    class CustomModel(tf.keras.Model):
-        def train_step(self, data):
-            x, y = data
-            with tf.GradientTape() as tape:
-                y_pred = self(x, training=True)  # Forward pass
-                # Compute our own loss
-                loss = loss_fn(y, y_pred)
-                l2_loss = [tf.nn.l2_loss(t) for t in model.trainable_variables]
-                l2_loss = self.l2_reg * tf.math.reduce_sum(l2_loss)
-                total_loss = loss + l2_loss
-            # Compute gradients
-            trainable_vars = self.trainable_variables
-            gradients = tape.gradient(total_loss, trainable_vars)
-
-            # Update weights
-            self.optimizer.apply_gradients(zip(gradients, trainable_vars))
-
-            # Compute our own metrics
-            loss_tracker.update_state(loss)
-            acc.update_state(y, y_pred)
-            return {"loss": loss_tracker.result(), "acc": acc.result()}
-        def test_step(self, data):
-            # Unpack the data
-            x, y = data
-            # Compute predictions
-            y_pred = self(x, training=False)
-            # Updates the metrics tracking the loss
-            loss = loss_fn(y, y_pred)
-
-            # Update the metrics.
-            loss_tracker.update_state(loss)
-            acc.update_state(y, y_pred)
-
-            # Return a dict mapping metric names to current value.
-            # Note that it will include the loss (tracked in self.metrics).
-            return {m.name: m.result() for m in self.metrics}
-        @property
-        def metrics(self):
-            # We list our `Metric` objects here so that `reset_states()` can be
-            # called automatically at the start of each epoch
-            # or at the start of `evaluate()`.
-            # If you don't implement this property, you have to call
-            # `reset_states()` yourself at the time of your choosing.
-            return [loss_tracker, acc]
-    return CustomModel(model.input, model.output)
-
-
 class Keras_Tuner():
-    def __init__(self, log_dir, ckpt_dir, initial_model_path, train_ds, val_ds, metric):
+    def __init__(self, log_dir, ckpt_dir, initial_model_path, custom_model_fn, train_ds, val_ds, metric):
         self.log_dir = log_dir
         self.ckpt_dir = ckpt_dir
         make_directory(log_dir)
@@ -105,17 +53,15 @@ class Keras_Tuner():
         self.initial_model_path = initial_model_path
         self.train_ds = train_ds
         self.val_ds = val_ds
-
-        # with tf.summary.create_file_writer(log_dir).as_default():
-        #     hp.hparams_config(
-        #     hparams=make_hparam_list(),
-        #     metrics=[hp.Metric(metric, display_name=metric)],
-        #   )
+        self.custom_model_fn = custom_model_fn
+        with tf.summary.create_file_writer(log_dir).as_default():
+            hp.hparams_config(
+            hparams=make_hparam_list(),
+            metrics=[hp.Metric(metric, display_name=metric)],
+          )
     def build_model(self, initial_model_path):
         model = tf.keras.models.load_model(initial_model_path)
-        return custom_model(model)
-    def write_log(self):
-        pass
+        return self.custom_model_fn(model)
 
     def train_test_model(self, hparams, run_log_dir, run_ckpt_dir):
         hparams = {h.name: hparams[h] for h in hparams}
@@ -147,7 +93,8 @@ class Keras_Tuner():
                         save_best_only=True,  # Only save a model if `val_loss` has improved.
                         monitor="val_loss",
                         verbose=1),
-                    tf.keras.callbacks.TensorBoard(run_log_dir)
+                    tf.keras.callbacks.TensorBoard(run_log_dir),
+                    RecordLearningRate(run_log_dir)
                 ]
         train_ds = self.train_ds.shuffle(2000).batch(hparams["batch_size"]).prefetch(tf.data.experimental.AUTOTUNE)
         val_ds = self.val_ds.batch(hparams["batch_size"]).prefetch(tf.data.experimental.AUTOTUNE)
